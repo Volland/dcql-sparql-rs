@@ -1,12 +1,12 @@
 [package]
 name = "dcql-plus-to-sparql-rs"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Extended DCQL query language with cross-credential matching and SPARQL translation"
 license = "Apache-2.0"
 keywords = ["dcql", "credentials", "sparql", "openid4vp", "rdf"]
 categories = ["encoding", "web-programming"]
-repository = "https://github.com/vpavlyshyn/dcql-plus-to-sparql-rs"
+repository = "https://github.com/Volland/dcql-sparql-rs"
 documentation = "https://docs.rs/dcql-plus-to-sparql-rs"
 readme = "README.md"
 
