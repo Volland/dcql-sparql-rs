@@ -1,6 +1,6 @@
 [package]
 name = "dcql-plus-to-sparql-rs"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 description = "Extended DCQL query language with cross-credential matching and SPARQL translation"
 license = "Apache-2.0"
@@ -10,10 +10,15 @@ repository = "https://github.com/Volland/dcql-sparql-rs"
 documentation = "https://docs.rs/dcql-plus-to-sparql-rs"
 readme = "README.md"
 
+[features]
+default = []
+sparql-validation = ["dep:spargebra"]
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1"
+spargebra = { version = "0.2", optional = true }
 
 [dev-dependencies]
 pretty_assertions = "1"

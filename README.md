@@ -35,6 +35,7 @@ DCQL+ is a strict superset: any valid DCQL query is valid DCQL+ with no changes.
   - [Age predicate](#use-case-3-age-predicate)
   - [Aggregate balance check](#use-case-4-aggregate-balance-check)
 - [Rust API](#rust-api)
+- [Validation](#validation)
 - [Namespace configuration](#namespace-configuration)
 - [Triplestore setup](#triplestore-setup)
 - [Limitations](#limitations)
@@ -615,6 +616,123 @@ match ExtendedDcqlQuery::from_json(json) {
     Err(DcqlError::UnknownClaimId(claim, cred))=> eprintln!("No claim '{claim}' in '{cred}'"),
     Err(DcqlError::EmptyPath)                  => eprintln!("Path must not be empty"),
     Err(e) => eprintln!("{e}"),
+}
+```
+
+---
+
+## Validation
+
+The `validation` module provides two traits: `DcqlValidate` for checking DCQL+ query structure, and `SparqlValidate` (opt-in feature) for verifying that the generated SPARQL parses correctly.
+
+### DCQL+ query validation
+
+`DcqlValidate` is implemented on both `ExtendedDcqlQuery` and `DcqlQuery`. It performs a **single-pass, non-fail-fast** check — all errors and warnings are collected and returned together.
+
+```rust
+use dcql_plus_to_sparql_rs::{ExtendedDcqlQuery, DcqlValidate};
+
+let query = ExtendedDcqlQuery::from_json(json)?;
+let result = query.validate();
+
+if result.is_valid() {
+    println!("valid ({} warning(s))", result.warnings.len());
+    for w in &result.warnings {
+        println!("  WARN [{}] at '{}': {}", w.code, w.location, w.message);
+        if let Some(hint) = &w.hint {
+            println!("       hint: {}", hint);
+        }
+    }
+} else {
+    for e in result.all() {   // errors first, then warnings
+        println!("{}", e);
+        // [ERROR] UnknownClaimId at 'credential_links[0].left_claim':
+        //   left_claim 'ghost' does not exist in credential 'identity'
+        //   hint: Available claim ids in 'identity': ["issuer", "name"]
+    }
+}
+```
+
+**Checked error codes:**
+
+| Code | Severity | What triggers it |
+|---|:---:|---|
+| `EmptyCredentials` | Error | `credentials` array is empty |
+| `EmptyClaimsArray` | Error | `claims: []` is present but empty |
+| `EmptyPath` | Error | A claim has `path: []` |
+| `EmptyOptions` | Error | `credential_sets.options` is empty or contains an empty inner array |
+| `DuplicateCredentialId` | Error | Two credentials share the same `id` |
+| `DuplicateClaimId` | Error | Two claims within one credential share the same `id` |
+| `InvalidCredentialId` | Error | Credential `id` contains characters outside `[a-zA-Z0-9_-]` |
+| `MissingClaimId` | Error | A claim used in `credential_links` or `aggregates` has no `id` field |
+| `UnknownCredentialId` | Error | `credential_links`, `credential_sets`, or `aggregates` reference a non-existent credential |
+| `UnknownClaimId` | Error | `credential_links`, `claim_sets`, or `aggregates` reference a non-existent claim id |
+| `ClaimSetsWithoutClaims` | Error | `claim_sets` is present but `claims` is absent |
+| `NoClaimsSpecified` | Warning | A credential has no `claims` (all claims will be requested) |
+| `AggregateWithoutMultiple` | Warning | An aggregate credential does not have `multiple: true` |
+| `FilterAndValuesBothPresent` | Warning | A claim has both `filter` and `values` |
+| `SelfLinkDetected` | Warning | Both sides of a `credential_link` reference the same claim |
+
+Error hints include the list of valid ids to make typos easy to spot:
+
+```
+[ERROR] UnknownClaimId at 'credential_links[0].right_claim':
+  right_claim 'sub_id' does not exist in credential 'diploma'
+  hint: Available claim ids in 'diploma': ["subject_id", "degree"]
+```
+
+**Combining validation with translation:**
+
+```rust
+use dcql_plus_to_sparql_rs::{DcqlValidate, SparqlTranslator, ExtendedDcqlQuery};
+
+let query = ExtendedDcqlQuery::from_json(json)?;
+
+// Validate first; abort on errors, print warnings
+let vr = query.validate();
+for w in &vr.warnings {
+    eprintln!("warning: {}", w);
+}
+if !vr.is_valid() {
+    for e in &vr.errors {
+        eprintln!("error: {}", e);
+    }
+    std::process::exit(1);
+}
+
+// Translate only if structurally valid
+let sparql = SparqlTranslator::new().translate(&query)?;
+```
+
+### SPARQL output validation
+
+Enable the `sparql-validation` feature to parse-check the generated SPARQL using [spargebra](https://crates.io/crates/spargebra):
+
+```toml
+[dependencies]
+dcql-plus-to-sparql-rs = { version = "0.2", features = ["sparql-validation"] }
+```
+
+`SparqlValidate` is implemented on `str` and `String`:
+
+```rust
+use dcql_plus_to_sparql_rs::{SparqlTranslator, SparqlValidate};
+
+let sparql = SparqlTranslator::new().translate(&query)?;
+
+sparql.validate_sparql().map_err(|e| {
+    eprintln!("generated invalid SPARQL: {}", e);
+    // SPARQL parse error: syntax error at line 7, column 3: ...
+})?;
+```
+
+This is most useful in tests and CI to catch translator regressions:
+
+```rust
+#[test]
+fn generated_sparql_is_always_valid() {
+    let sparql = SparqlTranslator::new().translate(&my_query).unwrap();
+    sparql.validate_sparql().expect("translator produced invalid SPARQL");
 }
 ```
 
